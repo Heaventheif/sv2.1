@@ -1,38 +1,23 @@
-name: 🔄 Keep Bot Alive (Render Ping)
+name: Keep Bot Alive
 
 on:
   schedule:
     - cron: '*/12 * * * *'
   workflow_dispatch:
 
-# منع التشغيل على أي push أو حدث آخر
-# فقط schedule و workflow_dispatch مسموح
-
 jobs:
   ping:
-    name: Ping Render Service
     runs-on: ubuntu-latest
-    # تجاهل تام إذا اشتغل من push أو أي trigger غير مقصود
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-
     steps:
-      - name: 🏓 Ping the Bot
-        env:
-          RENDER_URL: ${{ secrets.RENDER_URL }}
+      - name: Ping Render
         run: |
-          echo "⏰ $(date -u) — Sending ping to Render..."
-
           STATUS=$(curl -o /dev/null -s -w "%{http_code}" \
-            --max-time 30 \
-            --retry 3 \
-            --retry-delay 5 \
-            "$RENDER_URL")
-
-          echo "📡 HTTP Status: $STATUS"
-
+            --max-time 30 --retry 3 --retry-delay 5 \
+            "${{ secrets.RENDER_URL }}")
+          echo "Status: $STATUS"
           if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
-            echo "✅ Bot is alive!"
+            echo "Bot is alive!"
           else
-            echo "⚠️ Status $STATUS"
+            echo "Bot returned $STATUS"
             exit 1
           fi
