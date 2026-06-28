@@ -6,39 +6,30 @@
 //  ضعها هنا أو في متغيرات البيئة (Environment Variables)
 //  على Render: Settings → Environment Variables
 // ════════════════════════════════════════════════════════════
-// ⚠️ لا تضع قيمًا افتراضية نصية هنا (placeholder). إن لم يكن المتغير
-// مضبوطًا في .env تُترك القيمة null بدل نص وهمي قد يُستخدم بالخطأ.
-const FB_EMAIL    = process.env.FB_EMAIL    || null;
-const FB_PASSWORD = process.env.FB_PASSWORD || null;
+const FB_EMAIL    = process.env.FB_EMAIL    || "EMAIL_HERE";
+const FB_PASSWORD = process.env.FB_PASSWORD || "PASSWORD_HERE";
 
 // مفتاح المصادقة الثنائية (2FA Secret Key) من إعدادات حسابك
-// إذا لم يكن لديك 2FA مفعّل، اتركه فارغاً في .env
-const FB_2FA_SECRET = process.env.FB_2FA_SECRET || null;
+// إذا لم يكن لديك 2FA مفعّل، اتركه فارغاً: ""
+const FB_2FA_SECRET = process.env.FB_2FA_SECRET || "2FA_SECRET_HERE";
 
 // ════════════════════════════════════════════════════════════
 
 // ─── منع EPIPE وأخطاء الشبكة من إسقاط البوت ─────────────────
-// أخطاء الشبكة المؤقتة (EPIPE/ECONNRESET/ETIMEDOUT) تُسجَّل ويُتجاهل أثرها.
-// أي uncaughtException آخر: حسب توثيق Node.js العملية قد تكون في حالة
-// غير مستقرة بعد الاستثناء، فالأصح تسجيله ثم إيقاف العملية (process.exit(1))
-// وترك Render (أو أي مدير عمليات) يعيد تشغيلها تلقائيًا، بدل الاستمرار
-// بحالة غير مضمونة.
 process.on("uncaughtException", (err) => {
   if (err.code === "EPIPE" || err.code === "ECONNRESET" || err.code === "ETIMEDOUT") return;
-  console.error("[uncaughtException]", err);
-  process.exit(1);
+  console.error("[uncaughtException]", err.message);
 });
 process.on("unhandledRejection", (reason) => {
   const msg = reason?.message || String(reason);
   if (msg.includes("EPIPE") || msg.includes("ECONNRESET") || msg.includes("ETIMEDOUT")) return;
-  console.error("[unhandledRejection]", reason);
-  process.exit(1);
+  console.error("[unhandledRejection]", msg);
 });
 
 // ─── Globals الضرورية فقط ────────────────────────────────────
 global.threadState      = { active: new Map(), approved: new Map(), pending: new Map() };
 global.client           = { reactionListener: {}, globalData: new Map() };
-global.Kagenou          = { autodlEnabled: false, replies: {} };
+global.Kagenou          = { autodlEnabled: false, replies: {}, replyListeners: new Map() };
 global.config           = { admins: [], moderators: [], developers: [], vips: [], Prefix: ["."], botName: "Sunken Bot" };
 global.globalData       = new Map();
 global.usersData        = new Map();
@@ -127,18 +118,11 @@ const loadCommands = () => {
       const mod = cmd.default || cmd;
       if (mod.config?.name && (mod.onStart || mod.run || mod.execute)) {
         const name = mod.config.name.toLowerCase();
-        if (global.commands.has(name)) {
-          console.warn(`[WARN] تعارض اسم أمر: '${name}' في '${file}' يطغى على الأمر المُحمَّل سابقًا بنفس الاسم`);
-        }
         global.commands.set(name, mod);
         global.nonPrefixCommands.set(name, mod);
         (mod.config.aliases || []).forEach(a => {
-          const alias = a.toLowerCase();
-          if (global.commands.has(alias)) {
-            console.warn(`[WARN] تعارض alias: '${alias}' في '${file}' يطغى على أمر/alias مُحمَّل سابقًا بنفس الاسم`);
-          }
-          global.commands.set(alias, mod);
-          global.nonPrefixCommands.set(alias, mod);
+          global.commands.set(a.toLowerCase(), mod);
+          global.nonPrefixCommands.set(a.toLowerCase(), mod);
         });
       }
       if (mod.onChat || mod.handleEvent) global.eventCommands.push(mod);
@@ -158,28 +142,6 @@ try {
   }
 } catch { }
 
-// ─── Message Helper الموحّد (reply/unsend/registerReply) ──────
-// يُستخدم في الثلاثة مواضع التي كانت تكرر هذا المنطق حرفيًا:
-// reply-handler, command execute, و onChat.
-function buildMessageHelper(api, threadID, senderID, messageID) {
-  return {
-    reply: (t, cb) => {
-      return new Promise((resolve) => {
-        api.sendMessage(t, threadID, (err, info) => {
-          if (cb) cb(err, info);
-          resolve(info || {});
-        }, messageID);
-      });
-    },
-    unsend: (msgID) => {
-      try { api.unsendMessage(msgID, threadID); } catch (_) {}
-    },
-    registerReply: (id, d, cb) => {
-      global.Kagenou.replies[id] = { callback: cb, author: senderID, timestamp: Date.now(), ...d };
-    }
-  };
-}
-
 // ─── Message Handler ─────────────────────────────────────────
 const handleMessage = async (api, event) => {
   const { threadID, senderID, body, messageReply, messageID } = event;
@@ -194,37 +156,33 @@ const handleMessage = async (api, event) => {
     // لا نحذف الرد حتى نتأكد من التنفيذ
     if (!replyData.author || replyData.author === senderID) {
       delete global.Kagenou.replies[messageReply.messageID];
-
-      // ─── فحص صلاحية/cooldown الأمر الأصلي قبل تنفيذ الرد المحفوظ ──
-      // إن كان الأمر الأصلي يتطلب role أعلى (مثلاً أمر إداري)، نفس
-      // المنفّذ يجب أن يحقّق هذا الشرط أيضًا عند الرد، لا أن يُنفَّذ
-      // الرد دون أي تحقق بمجرد وجوده في الذاكرة.
+      // يدعم كلاً من: onReply (yt.js) و callback (أوامر أخرى)
+      // إذا لم يكن هناك handler محفوظ، ابحث عن onReply في الأمر نفسه
       const cmdForReply = replyData.commandName
         ? global.commands.get(replyData.commandName)
         : null;
-      if (cmdForReply) {
-        const role    = global.getUserRole(senderID);
-        const reqRole = cmdForReply.config?.role ?? 0;
-        if (role < reqRole) {
-          return api.sendMessage("⚠️ هذا الأمر للمشرفين فقط", threadID, null, messageID);
-        }
-        const cdMsg = global.checkCooldown(senderID, replyData.commandName);
-        if (cdMsg) return api.sendMessage(cdMsg, threadID, null, messageID);
-        global.setCooldown(senderID, replyData.commandName, cmdForReply.config?.countDown ?? 3);
-      }
-
-      // يدعم كلاً من: onReply (yt.js) و callback (أوامر أخرى)
-      // إذا لم يكن هناك handler محفوظ، ابحث عن onReply في الأمر نفسه
       const handler = replyData.onReply || replyData.callback ||
         (cmdForReply?.onReply ? (...a) => cmdForReply.onReply(...a) : null);
       if (typeof handler === "function") {
-        const replyMessage = buildMessageHelper(api, threadID, senderID, messageID);
+        const replyMessage = {
+          reply: (t, cb) => {
+            return new Promise((resolve) => {
+              api.sendMessage(t, threadID, (err, info) => {
+                if (cb) cb(err, info);
+                resolve(info || {});
+              });
+            });
+          },
+          unsend: (msgID) => {
+            try { api.unsendMessage(msgID, () => {}); } catch (_) {}
+          },
+          registerReply: (id, d, cb) => {
+            global.Kagenou.replies[id] = { callback: cb, author: senderID, timestamp: Date.now(), ...d };
+          }
+        };
         try {
           await handler({ api, event, message: replyMessage, Reply: replyData });
-        } catch (e) {
-          console.error("[REPLY ERROR]", e);
-          api.sendMessage("❌ حدث خطأ غير متوقع أثناء تنفيذ الرد", threadID, null, messageID);
-        }
+        } catch (e) { console.error("[REPLY ERROR]", e.message); }
       }
     }
     return;
@@ -254,7 +212,23 @@ const handleMessage = async (api, event) => {
   try {
     const ctx = {
       api, event, args,
-      message: buildMessageHelper(api, threadID, senderID, messageID),
+      message: {
+        // يدعم: string | { body, attachment } | callback(err, info)
+        reply: (t, cb) => {
+          return new Promise((resolve) => {
+            api.sendMessage(t, threadID, (err, info) => {
+              if (cb) cb(err, info);
+              resolve(info || {});
+            });
+          });
+        },
+        unsend: (msgID) => {
+          try { api.unsendMessage(msgID, () => {}); } catch (_) {}
+        },
+        registerReply: (id, d, cb) => {
+          global.Kagenou.replies[id] = { callback: cb, author: senderID, timestamp: Date.now(), ...d };
+        }
+      },
       prefix: "", usersData: global.usersData,
       globalData: global.globalData, db: global.db,
     };
@@ -262,10 +236,8 @@ const handleMessage = async (api, event) => {
     else if (command.run)     await command.run(ctx);
     else if (command.execute) await command.execute(api, event, args, global.commands, "", global.config.admins, global.appState, t => api.sendMessage(t, threadID, null, messageID), global.usersData, global.globalData);
   } catch (err) {
-    // رسالة عامة للمستخدم فقط — التفاصيل الكاملة (قد تحتوي مسارات أو
-    // بنية الكود الداخلية) تبقى في console فقط، لا تُسرَّب للشات.
-    console.error(`[CMD ERR] ${commandName}:`, err);
-    api.sendMessage("❌ حدث خطأ غير متوقع أثناء تنفيذ هذا الأمر", threadID, null, messageID);
+    console.error(`[CMD ERR] ${commandName}:`, err.message);
+    api.sendMessage(`❌ خطأ: ${err.message?.substring(0, 100)}`, threadID, null, messageID);
   }
 };
 
@@ -289,11 +261,8 @@ const handleReaction = async (api, event) => {
 // ─── Event Handler ────────────────────────────────────────────
 const handleEvent = async (api, event) => {
   // ━━━ إصلاح السبب الأول للتنفيذ المزدوج ━━━━━━━━━━━━━━━━━━━━
-  // إذا كانت الرسالة تبدأ بكلمة تُطابق اسم أمر (أو أحد aliases الخاصة به)
-  // فسيُعالجه handleMessage عبر onStart — نتجنب استدعاء onChat لنفس الأمر.
-  // نقارن بالاسم/الـ alias لا بمرجع الكائن (===) لأن إعادة تحميل الأمر
-  // (.up) بين بناء eventCommands ومعالجة الرسالة تُغيّر المرجع وتُفشل
-  // الفحص صامتًا → كان هذا يسمح بتنفيذ مزدوج نادر.
+  // إذا كانت الرسالة تبدأ بكلمة تُطابق أمراً معروفاً في global.commands،
+  // فسيُعالجه handleMessage عبر onStart — نتجنب استدعاء onChat لنفس الأمر
   const firstWord = event.body?.trim().split(/ +/)[0]?.toLowerCase();
 
   for (const cmd of global.eventCommands) {
@@ -302,20 +271,21 @@ const handleEvent = async (api, event) => {
         const hasAtt = (event.attachments?.length > 0);
         if (!event.messageID || (!event.body && !hasAtt)) continue;
 
-        if (firstWord) {
-          const name    = cmd.config?.name?.toLowerCase();
-          const aliases = (cmd.config?.aliases || []).map(a => a.toLowerCase());
-          if (firstWord === name || aliases.includes(firstWord)) continue;
-        }
+        // ← الإصلاح: تجاهل onChat إذا كان هذا الأمر بعينه هو المطابق للكلمة الأولى
+        // هذا يمنع تنفيذ الأمر مرة بـ onChat ومرة أخرى بـ onStart
+        if (firstWord && global.commands.get(firstWord) === cmd) continue;
 
         await cmd.onChat({
           api, event,
-          message: buildMessageHelper(api, event.threadID, event.senderID, event.messageID)
+          message: {
+            reply: (t, cb) => new Promise(res =>
+              api.sendMessage(t, event.threadID, (e, i) => { if (cb) cb(e, i); res(i || {}); }, event.messageID)
+            ),
+            unsend: (msgID) => { try { api.unsendMessage(msgID, () => {}); } catch (_) {} }
+          }
         });
       }
-    } catch (e) {
-      console.error(`[ONCHAT ERR] ${cmd.config?.name || "unknown"}:`, e);
-    }
+    } catch (_) {}
   }
 };
 
@@ -397,23 +367,6 @@ function startWebServer() {
 
     app.use(express.json());
 
-    // ─── حماية المسارات الداخلية ────────────────────────────
-    // هذه المسارات مصمَّمة للاستدعاء الداخلي فقط (من yt.js داخل نفس
-    // العملية عبر localhost)، وليست API عام. من دون هذا الفحص، أي
-    // شخص يعرف رابط Render يستطيع استدعاءها مباشرة ويستنزف الموارد.
-    // تسمح فقط لـ: localhost، أو من يحمل هيدر X-Internal-Key مطابق
-    // لـ INTERNAL_API_KEY (متغير بيئة اختياري).
-    function requireInternal(req, res, next) {
-      const ip = req.ip || req.connection?.remoteAddress || "";
-      const isLocal = ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
-      const keyHeader = req.headers["x-internal-key"];
-      const validKey  = process.env.INTERNAL_API_KEY && keyHeader === process.env.INTERNAL_API_KEY;
-      if (isLocal || validKey) return next();
-      return res.status(403).json({ error: "هذا المسار للاستخدام الداخلي فقط" });
-    }
-
-    app.use(["/yt/search", "/yt/audio", "/yt/video"], requireInternal);
-
     function fmtDur(sec) {
       if (!sec) return "--";
       const m = Math.floor(sec / 60), s = sec % 60, h = Math.floor(m / 60);
@@ -439,7 +392,7 @@ function startWebServer() {
     // POST /yt/search
     app.post("/yt/search", async (req, res) => {
       try {
-        const query = (req.body?.query || "").trim().slice(0, 200);
+        const query = (req.body?.query || "").trim();
         const limit = Math.min(parseInt(req.body?.limit || 10), 15);
         if (!query) return res.status(400).json({ error: "query مطلوب" });
 
@@ -571,7 +524,7 @@ const { connectDB } = require("./db/index");
 //  🔐 توليد رمز 2FA تلقائياً (TOTP)
 // ════════════════════════════════════════════════════════════
 function generate2FACode(secret) {
-  if (!secret) return null;
+  if (!secret || secret === "2FA_SECRET_HERE") return null;
   try {
     // نستخدم totp-generator إذا كانت مثبّتة
     const totp = require("totp-generator");
@@ -759,8 +712,9 @@ function fallbackToEmailLogin(reason) {
   console.log(chalk.yellow(`[LOGIN] ⚠️ AppState فشل (${reason?.substring?.(0,80) || reason})`));
   console.log(chalk.blue("[LOGIN] 🔄 الانتقال لتسجيل الدخول بـ Email/Password..."));
 
-  if (!FB_EMAIL || !FB_PASSWORD) {
-    console.error(chalk.red("[LOGIN] ❌ بيانات الدخول (FB_EMAIL/FB_PASSWORD) غير مضبوطة في متغيرات البيئة (.env)"));
+  if (!FB_EMAIL || FB_EMAIL === "EMAIL_HERE" ||
+      !FB_PASSWORD || FB_PASSWORD === "PASSWORD_HERE") {
+    console.error(chalk.red("[LOGIN] ❌ بيانات الدخول (Email/Password) غير مضبوطة في .env أو index.js"));
     process.exit(1);
   }
 
