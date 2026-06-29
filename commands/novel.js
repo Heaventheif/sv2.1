@@ -630,7 +630,7 @@ module.exports = {
     const header = `📖 ${result.title}\n📄 ${chapterLabel}\n🌐 ${result.siteName}\n${divider}\n\n`;
 
     // حذف رسالة الحالة
-    try { if (statusMsgId) await api.unsendMessage(statusMsgId); } catch (_) {}
+    try { if (statusMsgId) await api.unsendMessage(statusMsgId, threadID); } catch (_) {}
 
     // ① تجربة الإرسال كرسالة واحدة أولاً (قد يرفضها مسنجر لطولها)
     const sentAsSingle = await trySendAsSingleMessage(api, threadID, messageID, header, translated);
