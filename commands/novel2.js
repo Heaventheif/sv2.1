@@ -28,7 +28,7 @@ const cacheSet = (k, v) => {
 };
 
 // ─── المواقع المدعومة (للعرض فقط) ───────────────────────────
-const JS_SITES = ["NovelHi", "WtrLab"];
+const JS_SITES = ["NovelHi", "WtrLab", "Freewebnovel"];
 
 // تُرفع عندما يُرجع HF Space عدة نتائج متشابهة (need_selection)
 // بدل تخمين أول نتيجة أو تجاهل الأمر — نعرضها كقائمة مرشحين على المستخدم
@@ -171,14 +171,14 @@ module.exports = {
     author: "Sunken",
     countDown: 30,
     role: 0,
-    shortDescription: { ar: "قراءة فصول حديثة من مواقع JS (NovelHi, WtrLab)" },
+    shortDescription: { ar: "قراءة فصول حديثة من مواقع JS (NovelHi, WtrLab, Freewebnovel)" },
     category: "tools",
     guide: {
       ar: "{pn}novel2 [اسم الرواية] [رقم الفصل] [موقع (اختياري)]\n" +
           "أمثلة:\n" +
           "  .novel2 martial peak 3000\n" +
           "  .novel2 solo leveling 150 novelhi\n" +
-          "  .novel2 martial peak 3000 wtrlab\n\n" +
+          "  .novel2 shadow slave 13 freewebnovel\n\n" +
           "إذا ظهرت نتائج متشابهة، أعد الإرسال مع id:<الرقم> مثل:\n" +
           "  .novel2 martial peak 3000 id:12345"
     }
@@ -193,7 +193,8 @@ module.exports = {
         "📝 الاستخدام:\n  .novel2 [اسم الرواية] [رقم الفصل]\n\n" +
         "💡 أمثلة:\n" +
         "  .novel2 martial peak 3000\n" +
-        "  .novel2 solo leveling 150 novelhi\n\n" +
+        "  .novel2 solo leveling 150 novelhi\n" +
+        "  .novel2 shadow slave 13 freewebnovel\n\n" +
         `🌐 المصادر: ${JS_SITES.join(", ")}\n\n` +
         "⚠️ قد يستغرق 30-60 ثانية (Playwright)\n" +
         "📨 يُرسل كرسائل + ملف .txt",
