@@ -39,6 +39,54 @@ global.eventCommands    = [];
 global.appState         = {};
 global.botApi           = null;
 
+// ─── Send Queue (تسلسلي + تأخير لحماية الحساب) ──────────────
+// المعالجة تبقى بالتوازي — فقط لحظة الإرسال الفعلي تمر عبر هذا الـ queue
+(() => {
+  const SEND_DELAY_MS = 1000; // تأخير ثانية واحدة بين كل رسالة
+  let _queue   = [];
+  let _running = false;
+
+  async function _runQueue() {
+    if (_running) return;
+    _running = true;
+    while (_queue.length > 0) {
+      const { api, body, threadID, callback, messageID } = _queue.shift();
+      try {
+        await new Promise((resolve) => {
+          if (messageID !== undefined) {
+            api.sendMessage(body, threadID, (err, info) => {
+              if (callback) callback(err, info);
+              resolve();
+            }, messageID);
+          } else {
+            api.sendMessage(body, threadID, (err, info) => {
+              if (callback) callback(err, info);
+              resolve();
+            });
+          }
+        });
+      } catch (e) {
+        console.error("[SEND_QUEUE] خطأ أثناء الإرسال:", e.message);
+      }
+      // تأخير بين الرسائل لحماية الحساب
+      if (_queue.length > 0) {
+        await new Promise(r => setTimeout(r, SEND_DELAY_MS));
+      }
+    }
+    _running = false;
+  }
+
+  /**
+   * global.safeSend(api, body, threadID, callback?, messageID?)
+   * نفس توقيع api.sendMessage تماماً — تُضاف للـ queue وتُرسَل بالتسلسل
+   * بينما المعالجة (fetchHTML, translateBatch, إلخ) تبقى بالتوازي كما هي
+   */
+  global.safeSend = (api, body, threadID, callback, messageID) => {
+    _queue.push({ api, body, threadID, callback, messageID });
+    _runQueue();
+  };
+})();
+
 const fs       = require("fs-extra");
 const path     = require("path");
 const login    = require("@dongdev/fca-unofficial");
@@ -162,7 +210,7 @@ const handleMessage = async (api, event) => {
         const replyMessage = {
           reply: (t, cb) => {
             return new Promise((resolve) => {
-              api.sendMessage(t, threadID, (err, info) => {
+              global.safeSend(api, t, threadID, (err, info) => {
                 if (cb) cb(err, info);
                 resolve(info || {});
               });
@@ -175,9 +223,9 @@ const handleMessage = async (api, event) => {
             global.Kagenou.replies[id] = { callback: cb, author: senderID, timestamp: Date.now(), ...d };
           }
         };
-        try {
-          await handler({ api, event, message: replyMessage, Reply: replyData });
-        } catch (e) { console.error("[REPLY ERROR]", e.message); }
+        // بالخلفية — لا يحجب معالجة الأحداث التالية
+        handler({ api, event, message: replyMessage, Reply: replyData })
+          .catch(e => console.error("[REPLY ERROR]", e.message));
       }
     }
     return;
@@ -194,57 +242,61 @@ const handleMessage = async (api, event) => {
   const role    = global.getUserRole(senderID);
   const reqRole = command.config?.role ?? 0;
   if (role < reqRole) {
-    return api.sendMessage("⚠️ هذا الأمر للمشرفين فقط", threadID, null, messageID);
+    global.safeSend(api, "⚠️ هذا الأمر للمشرفين فقط", threadID, null, messageID);
+    return;
   }
 
   // ─── Cooldown ─────────────────────────────────────────────
   const cd    = command.config?.countDown ?? 3;
   const cdMsg = global.checkCooldown(senderID, commandName);
-  if (cdMsg) return api.sendMessage(cdMsg, threadID, null, messageID);
+  if (cdMsg) { global.safeSend(api, cdMsg, threadID, null, messageID); return; }
   global.setCooldown(senderID, commandName, cd);
 
-  // ─── Execute ──────────────────────────────────────────────
+  // ─── Execute (بالخلفية — لا await هنا لحماية التوازي) ────
   // ⏳ تفاعل فوري يُعلم المستخدم أن البوت استلم الطلب
   try { api.setMessageReaction("⏳", messageID, threadID, () => {}, true); } catch (_) {}
 
-  try {
-    const ctx = {
-      api, event, args,
-      message: {
-        // يدعم: string | { body, attachment } | callback(err, info)
-        reply: (t, cb) => {
-          return new Promise((resolve) => {
-            api.sendMessage(t, threadID, (err, info) => {
-              if (cb) cb(err, info);
-              resolve(info || {});
+  // الـ promise تعمل بالخلفية — handleMessage يعود فوراً لاستقبال الطلب التالي
+  (async () => {
+    try {
+      const ctx = {
+        api, event, args,
+        message: {
+          // كل ردود الأوامر تمر عبر safeSend (queue مشترك + تأخير)
+          reply: (t, cb) => {
+            return new Promise((resolve) => {
+              global.safeSend(api, t, threadID, (err, info) => {
+                if (cb) cb(err, info);
+                resolve(info || {});
+              }, messageID);
             });
-          });
+          },
+          unsend: (msgID) => {
+            try { api.unsendMessage(msgID, () => {}); } catch (_) {}
+          },
+          registerReply: (id, d, cb) => {
+            global.Kagenou.replies[id] = { callback: cb, author: senderID, timestamp: Date.now(), ...d };
+          }
         },
-        unsend: (msgID) => {
-          try { api.unsendMessage(msgID, () => {}); } catch (_) {}
-        },
-        registerReply: (id, d, cb) => {
-          global.Kagenou.replies[id] = { callback: cb, author: senderID, timestamp: Date.now(), ...d };
-        }
-      },
-      prefix: "", usersData: global.usersData,
-      globalData: global.globalData, db: global.db,
-    };
-    if      (command.onStart) await command.onStart(ctx);
-    else if (command.run)     await command.run(ctx);
-    else if (command.execute) await command.execute(api, event, args, global.commands, "", global.config.admins, global.appState, t => api.sendMessage(t, threadID, null, messageID), global.usersData, global.globalData);
-    // ✅ تفاعل نجاح بعد انتهاء الأمر
-    try { api.setMessageReaction("✅", messageID, threadID, () => {}, true); } catch (_) {}
-  } catch (err) {
-    console.error(`[CMD ERR] ${commandName}:`, err.message);
-    // ❌ تفاعل فشل
-    try { api.setMessageReaction("❌", messageID, threadID, () => {}, true); } catch (_) {}
-    api.sendMessage(`❌ خطأ: ${err.message?.substring(0, 100)}`, threadID, null, messageID);
-  }
+        prefix: "", usersData: global.usersData,
+        globalData: global.globalData, db: global.db,
+      };
+      if      (command.onStart) await command.onStart(ctx);
+      else if (command.run)     await command.run(ctx);
+      else if (command.execute) await command.execute(api, event, args, global.commands, "", global.config.admins, global.appState, t => global.safeSend(api, t, threadID, null, messageID), global.usersData, global.globalData);
+      // ✅ تفاعل نجاح بعد انتهاء الأمر
+      try { api.setMessageReaction("✅", messageID, threadID, () => {}, true); } catch (_) {}
+    } catch (err) {
+      console.error(`[CMD ERR] ${commandName}:`, err.message);
+      // ❌ تفاعل فشل
+      try { api.setMessageReaction("❌", messageID, threadID, () => {}, true); } catch (_) {}
+      global.safeSend(api, `❌ خطأ: ${err.message?.substring(0, 100)}`, threadID, null, messageID);
+    }
+  })();
 };
 
 // ─── Reaction Handler ──────────────────────────────────────────
-const handleReaction = async (api, event) => {
+const handleReaction = (api, event) => {
   const msgID = event.messageID;
   if (!msgID) return;
 
@@ -253,11 +305,9 @@ const handleReaction = async (api, event) => {
 
   if (entry.author && event.userID !== entry.author) return;
 
-  try {
-    await entry.callback({ api, event });
-  } catch (e) {
-    console.error("[REACTION ERR]", e.message);
-  }
+  // بالخلفية
+  Promise.resolve(entry.callback({ api, event }))
+    .catch(e => console.error("[REACTION ERR]", e.message));
 };
 
 // ─── Event Handler ────────────────────────────────────────────
@@ -268,26 +318,21 @@ const handleEvent = async (api, event) => {
   const firstWord = event.body?.trim().split(/ +/)[0]?.toLowerCase();
 
   for (const cmd of global.eventCommands) {
-    try {
-      if (cmd.onChat) {
-        const hasAtt = (event.attachments?.length > 0);
-        if (!event.messageID || (!event.body && !hasAtt)) continue;
+    if (!cmd.onChat) continue;
+    const hasAtt = (event.attachments?.length > 0);
+    if (!event.messageID || (!event.body && !hasAtt)) continue;
+    if (firstWord && global.commands.get(firstWord) === cmd) continue;
 
-        // ← الإصلاح: تجاهل onChat إذا كان هذا الأمر بعينه هو المطابق للكلمة الأولى
-        // هذا يمنع تنفيذ الأمر مرة بـ onChat ومرة أخرى بـ onStart
-        if (firstWord && global.commands.get(firstWord) === cmd) continue;
-
-        await cmd.onChat({
-          api, event,
-          message: {
-            reply: (t, cb) => new Promise(res =>
-              api.sendMessage(t, event.threadID, (e, i) => { if (cb) cb(e, i); res(i || {}); }, event.messageID)
-            ),
-            unsend: (msgID) => { try { api.unsendMessage(msgID, () => {}); } catch (_) {} }
-          }
-        });
+    // كل onChat تعمل بالخلفية — لا تنتظر السابقة
+    cmd.onChat({
+      api, event,
+      message: {
+        reply: (t, cb) => new Promise(res =>
+          global.safeSend(api, t, event.threadID, (e, i) => { if (cb) cb(e, i); res(i || {}); }, event.messageID)
+        ),
+        unsend: (msgID) => { try { api.unsendMessage(msgID, () => {}); } catch (_) {} }
       }
-    } catch (_) {}
+    }).catch(() => {});
   }
 };
 
