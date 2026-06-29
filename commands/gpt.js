@@ -79,7 +79,6 @@ async function handle(api, event, args, registerReply) {
   }
 
   const prompt = promptParts.join(" ").trim();
-  const senderName = event.senderID || "مستخدم";
 
   // مسح الذاكرة
   if (["clear", "مسح", "reset"].includes(prompt.toLowerCase())) {
