@@ -111,17 +111,27 @@ headers: { "Content-Type": "application/json", "X-Internal-Token": INTERNAL_TOKE
 
 ### متغيرات البيئة (HF Space → Settings → Variables and secrets)
 
-| المتغير | الاستخدام | إلزامي؟ |
-|---|---|---|
-| `INTERNAL_TOKEN` | حماية كل الـ API بتوكن داخلي (راجع قسم الأمان أعلاه) | **موصى به بشدة** |
-| `GROQ_API_KEY` | Llama 4 Scout + Whisper + fallback لـ Gemini | موصى به |
-| `GEMINI_API_KEY` (+ `_2`/`_3`/`_4`) | Gemini 2.5 Flash مع تناوب مفاتيح | موصى به |
-| `HF_TOKEN` | HuggingFace Inference + توليد الصور | لـ `/hf` و `/image` |
-| `GITHUB_MODELS_TOKEN` | GPT-4o عبر GitHub Models | لـ `/gptx` |
-| `CEREBRAS_API_KEY` | Cerebras GPT-OSS | لـ `/cerebras` |
-| `MONGO_URI` | حفظ جلسات المحادثة | اختياري |
-| `TUMBLR_API_KEY` / `GIPHY_API_KEY` / `FERDEV_API_KEY` | خدمات وسائط متفرقة | اختياري |
-| `CF_WORKER_URL` | توجيه الطلبات الخارجة عبر Cloudflare Worker | اختياري |
+هذه هي القائمة الفعلية المضبوطة حالياً على الـ Space (Settings → Variables and secrets):
+
+**Variables (عامة):**
+
+| المتغير | الاستخدام |
+|---|---|
+| `GROQ_API_KEY` | Llama 4 Scout + Whisper + fallback لـ Gemini |
+| `GEMINI_API_KEY` | Gemini 2.5 Flash — المفتاح الأساسي |
+| `GEMINI_API_KEY_2` | مفتاح Gemini إضافي (تناوب عند نفاد الحصة) |
+| `GEMINI_API_KEY_3` | مفتاح Gemini إضافي (تناوب عند نفاد الحصة) |
+| `MONGO_URI` | حفظ جلسات المحادثة لكل `thread_id` |
+
+**Secrets (سرية):**
+
+| المتغير | الاستخدام |
+|---|---|
+| `INTERNAL_TOKEN` | حماية كل الـ API بتوكن داخلي (راجع قسم الأمان أعلاه) |
+
+> ℹ️ متغيرات أخرى يدعمها الكود لخدمات اختيارية غير مفعّلة حالياً على هذا الـ Space (يمكن إضافتها لاحقاً عند الحاجة): `GEMINI_API_KEY_4`، `HF_TOKEN` (لـ `/hf` و `/image`)، `GITHUB_MODELS_TOKEN` (لـ `/gptx`)، `CEREBRAS_API_KEY` (لـ `/cerebras`)، `TUMBLR_API_KEY` (لـ `/random`)، `GIPHY_API_KEY` (لـ `/stickers/mood`)، `FERDEV_API_KEY` (لـ `/sing` و `/pinterest`)، `CF_WORKER_URL` (توجيه عبر Cloudflare Worker).
+>
+> ⚠️ **تذكير حاسم**: `INTERNAL_TOKEN` يجب أن يُضاف كـ **Secret** وليس Variable عادي — الـ Secrets فقط تبقى مخفية القيمة في واجهة الإعدادات وفي السجلات.
 
 ### النشر والتشغيل
 
@@ -164,13 +174,29 @@ docker run -p 7860:7860 --env-file .env sunken-bot
 
 ### متغيرات البيئة (Render → Environment Variables)
 
+القائمة الكاملة المطلوبة (مطابقة لملف `.env` المستخدَم على الخدمة):
+
 | المتغير | الاستخدام |
 |---|---|
 | `INTERNAL_TOKEN` | نفس قيمة HF Space — يُرفق تلقائياً كـ `X-Internal-Token` مع كل طلب للـ API |
-| `FB_EMAIL` / `FB_PASSWORD` / `FB_2FA_SECRET` | بيانات دخول حساب فيسبوك البوت |
-| `MONGO_URI` | قاعدة بيانات لحفظ بيانات المستخدمين بشكل دائم (موصى بها بشدة) |
-| `CEREBRAS_API_KEY` / `HF_SPACE_URL` / `HF_SCRAPER_URL` | الاتصال بخدمات AI على Hugging Face Space |
-| `FB_GRAPH_ACCESS_TOKEN` / `RAPIDAPI_KEY` | اختياري — تحسين `.adduser` |
+| `APPSTATE` | جلسة دخول فيسبوك بصيغة JSON (بديل/مكمّل لـ `FB_EMAIL`/`FB_PASSWORD`) |
+| `FB_EMAIL` | بريد حساب فيسبوك الخاص بالبوت |
+| `FB_PASSWORD` | كلمة مرور حساب فيسبوك الخاص بالبوت |
+| `FB_2FA_SECRET` | مفتاح التحقق بخطوتين (إن كان الحساب يستخدم 2FA) |
+| `MONGO_URI` | قاعدة بيانات لحفظ بيانات المستخدمين والجلسات بشكل دائم (موصى بها بشدة) |
+| `HF_SPACE_URL` | رابط Hugging Face Space (الـ API الذي يستدعيه البوت) |
+| `GEMINI_API_KEY` / `GEMINI_API_KEY_2` / `GEMINI_API_KEY_3` / `GEMINI_API_KEY_4` | مفاتيح Gemini للأوامر التي تستدعيه مباشرة من البوت |
+| `CEREBRAS_API_KEY` | الاتصال بـ Cerebras GPT-OSS |
+| `SAMBANOVA_API_KEY` | مزوّد ذكاء اصطناعي إضافي (SambaNova) |
+| `GITHUB_MODELS_TOKEN` | GPT-4o عبر GitHub Models |
+| `FERDEV_API_KEY` / `FERDEV_API_KEY2` / `FERDEV_API_KEY3` | مفاتيح خدمة Ferdev (SoundCloud / Pinterest وغيرها) — بديلة لبعضها عند نفاد الحصة |
+| `GIPHY_API_KEY` | GIFs المزاجية (`.sing` / ستيكر الأغنية) |
+| `TUMBLR_API_KEY` | محتوى عشوائي من Tumblr (`.random`) |
+| `RENDER_API_KEY` | الوصول إلى Render API (مثلاً لإعادة تشغيل الخدمة برمجياً) |
+| `RENDER_EXTERNAL_URL` | الرابط العام للخدمة على Render (يُستخدم في keep-alive/health checks) |
+| `RENDER_SERVICE_ID` | معرّف الخدمة على Render (يُستخدم مع `RENDER_API_KEY`) |
+
+> 💡 انسخ `sv2.1.env.txt` إلى `.env` على جذر مشروع `sv2.1` واملأ القيم؛ لا حاجة لإضافة أي متغيّر غير موجود في هذه القائمة.
 
 ### النشر على Render
 
@@ -186,6 +212,112 @@ npm install
 cp .env.example .env   # عدّل القيم، ومنها INTERNAL_TOKEN لمطابقة HF Space
 npm start
 ```
+
+---
+
+## ➕ إضافة أمر/ميزة جديدة — الصيغة المطلوبة في كل مستودع
+
+كلا المشروعين يستخدمان نظام **auto-discovery**: ضَع ملفاً بصيغة مُحدَّدة في المجلد الصحيح، وسيكتشفه النظام تلقائياً عند الإقلاع التالي دون أي تعديل على الكود الأساسي. الصيغة مختلفة بين المشروعين لأن أحدهما Python/FastAPI (Endpoint) والآخر Node.js (أمر شات).
+
+### 1) في `hf-space` (Hugging Face) — إضافة Plugin/Endpoint جديد
+
+أنشئ ملفاً جديداً في `plugins/`، مثلاً `plugins/my_feature.py`. الصيغة التي **يجب** أن يكتبها النظام ليقرأها `plugin_loader.py`:
+
+```python
+# plugins/my_feature.py
+"""
+plugins/my_feature.py
+endpoint: POST /my-endpoint
+وصف مختصر لما يفعله هذا الـ plugin (تعليق توثيقي أعلى الملف — ليس إلزامياً للتشغيل لكنه موصى به)
+"""
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+# تعريف إلزامي يقرأه main.py/`GET /` لعرضه في قائمة الـ plugins
+DESCRIPTION = "وصف مختصر للـ plugin يظهر في GET /"
+
+# اختياري — حزم pip إضافية يحتاجها هذا الـ plugin فقط
+# (أنشئ أيضاً ملف plugins/requirements/my_feature.txt بنفس الأسماء)
+# يُثبَّت تلقائياً عند الإقلاع ويُضاف لـ requirements.txt الجذر
+
+# اختياري — حزم نظام (apt) يحتاجها هذا الـ plugin، تُضاف تلقائياً إلى Dockerfile
+DOCKERFILE_DEPS = ["ffmpeg"]
+
+
+def register(app):
+    """
+    دالة إلزامية بهذا الاسم بالضبط: register(app) — أو setup(app) كبديل مقبول.
+    هنا تُعرَّف كل الـ routes الخاصة بهذا الـ plugin على تطبيق FastAPI.
+    """
+
+    @app.post("/my-endpoint")
+    async def my_endpoint(request: Request):
+        body = await request.json()
+        # ... منطق المعالجة هنا
+        return JSONResponse({"status": "ok"})
+```
+
+**القواعد التي يفرضها `plugin_loader.py` عند القراءة:**
+
+| العنصر | الإلزامية | الدور |
+|---|---|---|
+| اسم الملف لا يبدأ بـ `_` | إلزامي | الملفات التي تبدأ بـ `_` (مثل `_base.py`) تُتجاهَل عمداً |
+| دالة `register(app)` أو `setup(app)` | إلزامي (واحدة على الأقل) | نقطة الدخول التي يستدعيها المُحمِّل لتسجيل الـ routes |
+| `DESCRIPTION` (نص) | موصى به | يظهر في استجابة `GET /` ضمن قائمة الـ plugins المحمَّلة |
+| `DOCKERFILE_DEPS` (قائمة نصوص) | اختياري | حزم apt تُدمج تلقائياً في `Dockerfile` |
+| `plugins/requirements/<name>.txt` | اختياري | مكتبات pip خاصة بالـ plugin، تُثبَّت وتُدمج تلقائياً في `requirements.txt` |
+
+- **لا تُعدِّل** `main.py` أو `plugin_loader.py` أبداً — كل إضافة تتم فقط عبر ملف جديد في `plugins/`.
+- فشل تحميل plugin واحد (خطأ استيراد، فشل تثبيت متطلبات...) **لا يوقف** بقية الـ plugins ولا الخادم؛ يظهر فقط كـ `"status": "error"` في `GET /`.
+- لا حاجة لإضافة الـ endpoint الجديد يدوياً لأي قائمة — يُكتشف تلقائياً من مجرد وجود الملف.
+- تذكَّر أن أي endpoint جديد هنا سيمر تلقائياً عبر **middleware التحقق من `X-Internal-Token`** (ما لم يكن `/` أو `/health`)، فلا حاجة لإضافة تحقق توكن يدوي داخل الـ plugin نفسه.
+
+### 2) في `sv2.1` (Render) — إضافة أمر شات جديد
+
+أنشئ ملفاً جديداً في `commands/`، مثلاً `commands/mycommand.js`. الصيغة التي **يجب** أن يكتبها النظام ليقرأها مُحمِّل الأوامر في `index.js`:
+
+```js
+// commands/mycommand.js
+module.exports = {
+  config: {
+    name: "mycommand",        // إلزامي — اسم الأمر كما يُكتب بعد الـ Prefix (مثلاً .mycommand)
+    aliases: ["alias1"],      // اختياري — أسماء بديلة لنفس الأمر
+    role: 0,                  // إلزامي — 0 = للجميع، 1 = مشرفين، 2 = مشرف كبير، 3 = VIP، 4 = مطور
+    countDown: 5,             // اختياري (افتراضي بسيط) — مهلة التبريد بالثواني بين استخدامين لنفس المستخدم
+    category: "أدوات",        // اختياري — التصنيف الذي يظهر تحته في .help
+    description: "وصف مختصر لما يفعله الأمر", // يظهر في .help [اسم الأمر]
+  },
+
+  // دالة إلزامية بهذا الاسم بالضبط: onStart
+  onStart: async ({ api, event, args }) => {
+    const { threadID, messageID } = event;
+    // args = الكلمات بعد اسم الأمر، مثال: ".mycommand مرحبا" → args = ["مرحبا"]
+
+    // استخدم api.sendMessage عادي — يمر تلقائياً عبر طابور safeSend الآمن لكل مجموعة
+    await api.sendMessage("مرحباً! الأمر شغال ✅", threadID, messageID);
+  }
+};
+```
+
+**القواعد التي يفرضها مُحمِّل الأوامر عند القراءة:**
+
+| العنصر | الإلزامية | الدور |
+|---|---|---|
+| الملف داخل `commands/*.js` | إلزامي | أي ملف JS هنا يُحمَّل تلقائياً عند تشغيل البوت — لا حاجة لتسجيله يدوياً في `index.js` |
+| `module.exports.config.name` | إلزامي | يحدد كيف يُستدعى الأمر (`<Prefix><name>`، مثل `.mycommand`) |
+| `module.exports.config.role` | إلزامي | يحدد من يملك صلاحية تنفيذ الأمر حسب نظام الصلاحيات (0–4) |
+| `module.exports.onStart` | إلزامي | الدالة التي تُنفَّذ فعلياً عند استدعاء الأمر — تستقبل `{ api, event, args }` |
+| `aliases` / `countDown` / `category` / `description` | اختياري | تحسّن تجربة `.help` وتمنع إساءة الاستخدام، لكن الأمر يعمل بدونها بإعدادات افتراضية |
+
+- إن احتاج الأمر استدعاء API على Hugging Face Space، استورد `INTERNAL_TOKEN` من البيئة وأرفقه كـ header، بنفس نمط `commands/groq.js` أو `commands/gemini.js`:
+  ```js
+  const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || "";
+  // ...
+  axios.post(`${process.env.HF_SPACE_URL}/my-endpoint`, payload,
+    { headers: { "Content-Type": "application/json", "X-Internal-Token": INTERNAL_TOKEN } });
+  ```
+- لا تستدعِ `api.sendMessage` بأي شكل آخر غير ما هو موضّح أعلاه؛ التغليف التلقائي في `index.js` يضمن مرور كل الرسائل عبر طابور الإرسال الآمن (`safeSend`) لحماية الحساب من الحظر — وهذا يعمل تلقائياً طالما استخدمت `api.sendMessage` العادية كما في المثال.
 
 ---
 
