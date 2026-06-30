@@ -79,8 +79,18 @@ function gatedSend(api, body, threadID, callback, messageID) {
 
 global.safeSend = gatedSend;
 
-// لا تغليف على api — يُستخدم كما هو دون أي اعتراض على sendMessage
-function wrapApiForSafety(api) { return api; }
+// تغليف فعلي على api: أي استدعاء مباشر لـ api.sendMessage داخل أي أمر
+// (حتى لو نسي المطوّر استخدام global.safeSend) يُعاد توجيهه تلقائياً
+// عبر الطابور المحمي (gatedSend) — حماية احتياطية إضافية من السبام.
+const _wrappedApiCache = new WeakMap();
+function wrapApiForSafety(api) {
+  if (_wrappedApiCache.has(api)) return _wrappedApiCache.get(api);
+  const wrapped = Object.create(api);
+  wrapped.sendMessage = (body, threadID, callback, messageID) =>
+    gatedSend(api, body, threadID, callback, messageID);
+  _wrappedApiCache.set(api, wrapped);
+  return wrapped;
+}
 global.wrapApiForSafety = wrapApiForSafety;
 
 const fs       = require("fs-extra");
