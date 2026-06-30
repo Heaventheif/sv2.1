@@ -1,6 +1,9 @@
 const axios = require('axios');
 
-const FB_GRAPH_TOKEN = process.env.FB_GRAPH_ACCESS_TOKEN || "6628568379%7Cc1e620fa708a1d5696fb991c1bde5662";
+// ⚠️ لا تترك مفتاحاً حقيقياً كقيمة افتراضية في الكود — يجب ضبط
+// FB_GRAPH_ACCESS_TOKEN في متغيرات البيئة. بدونه تُتخطى طريقة Graph API
+// تلقائياً وتُستخدم باقي طرق resolveUID.
+const FB_GRAPH_TOKEN = process.env.FB_GRAPH_ACCESS_TOKEN || "";
 
 const BROWSER_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -14,17 +17,38 @@ module.exports = {
   config: {
     name: "adduser",
     aliases: ["اضافة", "ادع", "invite"],
-    version: "4.0.0",
+    version: "4.1.0",
     author: "Enhanced UID Extractor",
-    countDown: 5,
+    // ⏳ رُفع من 5 إلى 45 ثانية بين كل استخدامين — إضافة الأعضاء من أكثر
+    // الأسباب شيوعاً لحظر/تقييد حسابات فيسبوك إن تكررت بسرعة
+    countDown: 45,
     role: 1,
     shortDescription: { ar: "إضافة عضو عبر UID أو رابط فيسبوك" },
     category: "أدوات",
     guide: { ar: "{pn}adduser [UID أو رابط أو يوزرنيم]" }
   },
 
+  // ── حد يومي صارم لكل مشرف (in-memory، يُصفّر كل 24 ساعة) ──
+  // ملاحظة: هذا تخزين في الذاكرة فقط ويُصفّر عند إعادة تشغيل البوت.
+  // إن أردت استمرارية الحد عبر عمليات إعادة التشغيل، اربطه بقاعدة
+  // البيانات (UserModel) بدل هذا الـ Map.
+  _dailyAddLog: new Map(), // senderID -> [timestamps]
+  _DAILY_LIMIT: 8,
+  _DAY_MS: 24 * 60 * 60 * 1000,
+
   onStart: async function ({ api, event, args, message }) {
     const { threadID, messageID, senderID } = event;
+
+    // ── فحص الحد اليومي قبل أي معالجة ───────────────────────
+    const now = Date.now();
+    const log = (this._dailyAddLog.get(senderID) || []).filter(t => now - t < this._DAY_MS);
+    if (log.length >= this._DAILY_LIMIT) {
+      const waitMin = Math.ceil((this._DAY_MS - (now - log[0])) / 60000);
+      return api.sendMessage(
+        `⚠️ وصلت للحد الأقصى (${this._DAILY_LIMIT} إضافات/يوم) لحماية الحساب من الحظر.\n⏳ حاول بعد ${waitMin} دقيقة تقريباً.`,
+        threadID, null, messageID
+      );
+    }
 
     // ── فحص صلاحية ───────────────────────────────────────────
     let threadInfo;
@@ -99,6 +123,14 @@ module.exports = {
 
       await editMsg(`✅ تمت الإضافة بنجاح!\n👤 الاسم: ${userName}\n🆔 UID: ${uid}`);
 
+      // تسجيل العملية الناجحة ضمن الحد اليومي لهذا المشرف
+      log.push(now);
+      this._dailyAddLog.set(senderID, log);
+      const remaining = Math.max(0, this._DAILY_LIMIT - log.length);
+      if (remaining <= 2) {
+        await api.sendMessage(`ℹ️ تبقى لك ${remaining} عملية إضافة اليوم.`, threadID, null, messageID);
+      }
+
     } catch (error) {
       console.error("[AddUser Fatal]", error);
       await editMsg("❌ حدث خطأ غير متوقع.");
@@ -131,13 +163,15 @@ async function resolveUID(input) {
   if (!slug || ignoreSlugs.includes(slug.toLowerCase())) return null;
 
   // ── طريقة 1: Graph API (قد يعمل مع بعض الـ usernames) ──
-  try {
-    const res = await axios.get(`https://graph.facebook.com/${encodeURIComponent(slug)}`, {
-      params: { fields: "id", access_token: FB_GRAPH_TOKEN },
-      timeout: 8000,
-    });
-    if (res.data?.id) return res.data.id;
-  } catch (_) {}
+  if (FB_GRAPH_TOKEN) {
+    try {
+      const res = await axios.get(`https://graph.facebook.com/${encodeURIComponent(slug)}`, {
+        params: { fields: "id", access_token: FB_GRAPH_TOKEN },
+        timeout: 8000,
+      });
+      if (res.data?.id) return res.data.id;
+    } catch (_) {}
+  }
 
   // ── طريقة 2: scrape صفحة فيسبوك مباشرة ─────────────────
   const profileUrl = `https://www.facebook.com/${slug}`;
