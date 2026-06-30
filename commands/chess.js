@@ -4,7 +4,7 @@
 
 const axios = require("axios");
 
-const HF_CHESS_URL = process.env.HF_SCRAPER_URL || "";
+const HF_CHESS_URL = process.env.HF_SPACE_URL || "";
 const CHESS_TIMEOUT = 55000;
 
 // ─── تخزين مؤقت في الذاكرة (fallback) ───────────────────────
@@ -83,7 +83,7 @@ async function endGame(gameId, winnerId = null) {
 // ═══════════════════════════════════════════════════════════════
 
 async function callChessEngine(fen, move, botMode = false, difficulty = 3) {
-  if (!HF_CHESS_URL) throw new Error("HF_SCRAPER_URL غير مضبوط في .env");
+  if (!HF_CHESS_URL) throw new Error("HF_SPACE_URL غير مضبوط في .env");
   const url = `${HF_CHESS_URL.replace(/\/$/, "")}/process_move`;
   const res = await axios.post(url,
     { fen, move: move || null, bot_mode: botMode, difficulty },
