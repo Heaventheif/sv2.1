@@ -36,8 +36,22 @@ UserSchema.methods.addXP = async function (amount) {
 };
 
 // ══════════════════════════════════════════════════
+//  2. مخطط بيانات عامة (GlobalDataSchema)
+//  يُستخدم لحفظ global.globalData بشكل دوري (key/value عام، غير
+//  مرتبط بمستخدم محدد) حتى لا تُفقد عند إعادة التشغيل.
+// ══════════════════════════════════════════════════
+const GlobalDataSchema = new Schema(
+  {
+    key:   { type: String, required: true, unique: true, index: true },
+    value: { type: Schema.Types.Mixed, default: null },
+  },
+  { timestamps: true, collection: "global_data" }
+);
+
+// ══════════════════════════════════════════════════
 //  Exports
 // ══════════════════════════════════════════════════
-const UserModel  = mongoose.models.User  || mongoose.model("User",  UserSchema);
+const UserModel       = mongoose.models.User       || mongoose.model("User", UserSchema);
+const GlobalDataModel = mongoose.models.GlobalData || mongoose.model("GlobalData", GlobalDataSchema);
 
-module.exports = { UserModel };
+module.exports = { UserModel, GlobalDataModel };
