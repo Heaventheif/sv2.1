@@ -42,44 +42,62 @@ global.botApi           = null;
 // ─── Send Queue (تسلسلي + تأخير لحماية الحساب) ──────────────
 // المعالجة تبقى بالتوازي — فقط لحظة الإرسال الفعلي تمر عبر هذا الـ queue
 (() => {
-  const SEND_DELAY_MS = 1000; // تأخير ثانية واحدة بين كل رسالة
+  const SEND_DELAY_MS  = 1000;  // تأخير بين الرسائل (ms)
+  const SEND_TIMEOUT   = 15000; // حد أقصى لانتظار callback واحد (ms)
   let _queue   = [];
   let _running = false;
 
   async function _runQueue() {
     if (_running) return;
     _running = true;
-    while (_queue.length > 0) {
-      const { api, body, threadID, callback, messageID } = _queue.shift();
-      try {
-        await new Promise((resolve) => {
-          if (messageID !== undefined) {
-            api.sendMessage(body, threadID, (err, info) => {
-              if (callback) callback(err, info);
+    try {
+      while (_queue.length > 0) {
+        const { api, body, threadID, callback, messageID } = _queue.shift();
+        try {
+          await new Promise((resolve) => {
+            // timeout: إذا لم يأتِ callback خلال SEND_TIMEOUT نكمل بدونه
+            const timer = setTimeout(() => {
+              console.warn("[SEND_QUEUE] ⚠️ timeout على رسالة — تجاوز");
               resolve();
-            }, messageID);
-          } else {
-            api.sendMessage(body, threadID, (err, info) => {
-              if (callback) callback(err, info);
+            }, SEND_TIMEOUT);
+
+            const done = (err, info) => {
+              clearTimeout(timer);
+              if (callback) { try { callback(err, info); } catch (_) {} }
               resolve();
-            });
-          }
-        });
-      } catch (e) {
-        console.error("[SEND_QUEUE] خطأ أثناء الإرسال:", e.message);
+            };
+
+            try {
+              if (messageID !== undefined) {
+                api.sendMessage(body, threadID, done, messageID);
+              } else {
+                api.sendMessage(body, threadID, done);
+              }
+            } catch (syncErr) {
+              // api.sendMessage رمى خطأ متزامناً (نادر)
+              console.error("[SEND_QUEUE] خطأ متزامن:", syncErr.message);
+              clearTimeout(timer);
+              if (callback) { try { callback(syncErr, null); } catch (_) {} }
+              resolve();
+            }
+          });
+        } catch (e) {
+          console.error("[SEND_QUEUE] خطأ غير متوقع:", e.message);
+        }
+
+        if (_queue.length > 0) {
+          await new Promise(r => setTimeout(r, SEND_DELAY_MS));
+        }
       }
-      // تأخير بين الرسائل لحماية الحساب
-      if (_queue.length > 0) {
-        await new Promise(r => setTimeout(r, SEND_DELAY_MS));
-      }
+    } finally {
+      // ضمان مطلق: _running يُعاد لـ false حتى لو حدث أي استثناء
+      _running = false;
     }
-    _running = false;
   }
 
   /**
    * global.safeSend(api, body, threadID, callback?, messageID?)
-   * نفس توقيع api.sendMessage تماماً — تُضاف للـ queue وتُرسَل بالتسلسل
-   * بينما المعالجة (fetchHTML, translateBatch, إلخ) تبقى بالتوازي كما هي
+   * نفس توقيع api.sendMessage — تُضاف للـ queue وتُرسَل بالتسلسل
    */
   global.safeSend = (api, body, threadID, callback, messageID) => {
     _queue.push({ api, body, threadID, callback, messageID });
