@@ -4,6 +4,7 @@ const { translateToArabic } = require("../utils/translator.js");
 // ─── رابط HF Space ────────────────────────────────────────────
 // غيّر هذا لرابط الـ Space الخاص بك
 const HF_API = process.env.HF_SPACE_URL || "https://YOUR-SPACE.hf.space";
+const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || "";
 const HF_TIMEOUT = 60000; // دقيقة كاملة (Playwright يحتاج وقت)
 
 // ─── Cache ────────────────────────────────────────────────────
@@ -97,7 +98,7 @@ async function fetchFromHF(novelName, chapterNum, preferredSite = null, novelId 
 
   const res = await axios.post(`${HF_API}/novel`, body, {
     timeout: HF_TIMEOUT,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Internal-Token": INTERNAL_TOKEN },
     validateStatus: () => true,
   });
 

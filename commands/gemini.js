@@ -2,6 +2,7 @@ const axios    = require("axios");
 const mongoose = require("mongoose");
 
 const HF_BASE = process.env.HF_SPACE_URL || "";
+const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || "";
 
 // ─── Schema للجلسات ──────────────────────────────────────────
 const sessionSchema = new mongoose.Schema({
@@ -47,7 +48,7 @@ async function callHF(endpoint, messages) {
   const { data } = await axios.post(
     `${HF_BASE.replace(/\/+$/, "")}/${endpoint}`,
     { messages },
-    { timeout: 30000, headers: { "Content-Type": "application/json" } }
+    { timeout: 30000, headers: { "Content-Type": "application/json", "X-Internal-Token": INTERNAL_TOKEN } }
   );
   if (!data.reply) throw new Error("استجابة فارغة");
   return data.reply;

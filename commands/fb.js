@@ -11,6 +11,7 @@ const os    = require("os");
 const path  = require("path");
 
 const HF_BASE = (process.env.HF_SPACE_URL || "https://Solvant-s.hf.space").replace(/\/+$/, "");
+const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || "";
 
 const FB_REGEX = /https?:\/\/(www\.)?(facebook\.com|fb\.watch|fb\.com)\/(watch|share|reel|video|reels|[\w.]+\/videos?|[\w.]+\/reels?)[^\s]*/i;
 
@@ -23,7 +24,7 @@ async function callHF(fbUrl, quality = "worst") {
   const { data } = await axios.post(
     `${HF_BASE}/fb`,
     { url: fbUrl, quality },
-    { timeout: 150000, headers: { "Content-Type": "application/json" } }
+    { timeout: 150000, headers: { "Content-Type": "application/json", "X-Internal-Token": INTERNAL_TOKEN } }
   );
   if (data.error) throw new Error(data.error);
   return data;

@@ -5,6 +5,7 @@
 const axios = require("axios");
 
 const HF_CHESS_URL = process.env.HF_SPACE_URL || "";
+const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || "";
 const CHESS_TIMEOUT = 55000;
 
 // ─── تخزين مؤقت في الذاكرة (fallback) ───────────────────────
@@ -87,7 +88,7 @@ async function callChessEngine(fen, move, botMode = false, difficulty = 3) {
   const url = `${HF_CHESS_URL.replace(/\/$/, "")}/process_move`;
   const res = await axios.post(url,
     { fen, move: move || null, bot_mode: botMode, difficulty },
-    { timeout: CHESS_TIMEOUT, headers: { "Content-Type": "application/json" } }
+    { timeout: CHESS_TIMEOUT, headers: { "Content-Type": "application/json", "X-Internal-Token": INTERNAL_TOKEN } }
   );
   return res.data;
   // يرجع: { new_fen, image_base64, game_over, winner, illegal_move_error }
