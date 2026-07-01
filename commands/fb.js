@@ -19,6 +19,15 @@ function extractFbUrl(text) {
   return text?.match(FB_REGEX)?.[0] || null;
 }
 
+// ─── تفاعل آمن على الرسالة ────────────────────────────────────
+// نفس صيغة الاستدعاء المستخدمة في index.js (handleMessage):
+// setMessageReaction(emoji, messageID, threadID, callback, forceCustom)
+// موجودة هنا محلياً لأن onChat لا يمر عبر نظام التفاعل المركزي في index.js
+// (ذاك النظام يعمل فقط على الأوامر المستدعاة بالـ Prefix عبر onStart)
+function react(api, emoji, messageID, threadID) {
+  try { api.setMessageReaction(emoji, messageID, threadID, () => {}, true); } catch (_) {}
+}
+
 // ─── استدعاء HF ──────────────────────────────────────────────
 async function callHF(fbUrl, quality = "worst") {
   const { data } = await axios.post(
@@ -32,6 +41,8 @@ async function callHF(fbUrl, quality = "worst") {
 }
 
 // ─── تحميل وإرسال ────────────────────────────────────────────
+// تُرجع true عند النجاح و false عند الفشل — لا تكتم الفشل بصمت،
+// بل تسمح للمستدعي (onStart / onChat) بتحديد التفاعل المناسب (✅/❌)
 async function downloadAndSend(api, event, fbUrl, quality = "worst", label = "") {
   const { threadID } = event;
 
@@ -46,26 +57,31 @@ async function downloadAndSend(api, event, fbUrl, quality = "worst", label = "")
       await fs.writeFile(tmpFile, buffer);
 
       await new Promise((res, rej) =>
-        global.safeSend(api, 
+        global.safeSend(api,
           { body: `🎬 ${result.title || "فيديو فيسبوك"}${label}`.trim(), attachment: fs.createReadStream(tmpFile) },
           threadID, (err) => err ? rej(err) : res()
         )
       );
+      return true;
 
     } else if (result.video_url) {
       // ─── HF أرجع رابط مباشر (نادر) ──────────────────────
-      await global.safeSend(api, 
+      await global.safeSend(api,
         `🎬 ${result.title || "فيديو فيسبوك"}\n🔗 ${result.video_url}`,
         threadID, null, null
       );
+      return true;
 
     } else {
       console.error("[FB→HF] لم يُعثر على الفيديو:", fbUrl);
+      return false;
     }
 
   } catch (e) {
-    // فشل صامت بالكامل — لا تُرسل أي رسالة في الشات، فقط سجل في الـ console
+    // نسجل الخطأ في الـ console فقط (بدون إرسال رسالة إضافية للمستخدم
+    // في هذه الدالة نفسها) — لكن الآن نُبلّغ المستدعي بالفشل عبر false/throw
     console.error("[FB→HF]", e.response?.status, e.message?.substring(0, 200));
+    return false;
   } finally {
     fs.remove(tmpFile).catch(() => {});
   }
@@ -75,7 +91,7 @@ module.exports = {
   config: {
     name:      "fb",
     aliases:   ["facebook", "fbdl"],
-    version:   "3.0.0",
+    version:   "3.1.0",
     role:      0,
     countDown: 15,
     category:  "download",
@@ -83,6 +99,9 @@ module.exports = {
   },
 
   // ─── كشف رابط تلقائي بدون أمر ──────────────────────────────
+  // بلا Prefix → لا يمر عبر نظام التفاعل المركزي في index.js،
+  // لذلك نتفاعل يدوياً هنا بنفس نمط بقية الأوامر: ⏳ عند الاستلام،
+  // ✅ عند نجاح الإرسال، ❌ عند الفشل.
   onChat: async ({ api, event }) => {
     let fbUrl = null;
     for (const att of (event.attachments || [])) {
@@ -91,7 +110,12 @@ module.exports = {
     if (!fbUrl) fbUrl = extractFbUrl(event.body);
     if (!fbUrl && event.messageReply?.body) fbUrl = extractFbUrl(event.messageReply.body);
     if (!fbUrl) return;
-    await downloadAndSend(api, event, fbUrl, "worst");
+
+    const { threadID, messageID } = event;
+
+    react(api, "⏳", messageID, threadID);
+    const ok = await downloadAndSend(api, event, fbUrl, "worst");
+    react(api, ok ? "✅" : "❌", messageID, threadID);
   },
 
   onStart: async ({ api, event, args, message }) => {
@@ -106,6 +130,11 @@ module.exports = {
     const quality = wantHD ? "720p" : "worst";
     if (!urlArg) return message.reply("❌ أرسل الرابط بعد hd.");
     const fbUrl = extractFbUrl(urlArg) || urlArg;
-    await downloadAndSend(api, event, fbUrl, quality, wantHD ? " · HD" : "");
+
+    const ok = await downloadAndSend(api, event, fbUrl, quality, wantHD ? " · HD" : "");
+    // index.js (handleMessage) يتفاعل تلقائياً بـ ⏳ قبل onStart، وبـ ✅/❌
+    // بعده حسب نجاح/فشل الدالة — الرمي هنا هو ما يُفعّل ❌ عند الفشل
+    // (سابقاً downloadAndSend كانت تكتم الخطأ فتُظهر ✅ دائماً حتى عند الفشل)
+    if (!ok) throw new Error("فشل تحميل الفيديو من فيسبوك");
   },
 };
