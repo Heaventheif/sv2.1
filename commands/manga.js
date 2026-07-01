@@ -285,68 +285,27 @@ async function findNearestChapterAsLastResort(mangaId, targetNum) {
 }
 
 // نقطة الدخول الرئيسية لاختيار الفصل واللغة الصحيحين.
-// الترتيب: لغة محددة من المستخدم → (بدون تحديد) عربي ثم إنجليزي ثم ياباني
-// → أي لغة متوفرة لنفس الرقم تمامًا → ملاذ أخير بأقرب رقم فصل (نادر الحدوث).
+// عربي فقط دائمًا (ما لم يحدد المستخدم لغة أخرى صراحةً) — بدون أي رجوع
+// تلقائي للغة بديلة (إسبانية أو غيرها) وبدون ملاذ أخير بأقرب رقم فصل.
+// إن لم يتوفر الفصل باللغة المطلوبة، تُرجَع النتيجة فارغة والمستدعي يبلّغ
+// المستخدم أن الفصل غير متوفر بتلك اللغة تحديدًا.
 async function resolveChapter(mangaId, chapterNumberStr, requestedLang) {
   const targetNum = Number(chapterNumberStr);
   const chapterCandidates = buildChapterCandidates(chapterNumberStr);
-  const langsToTry = requestedLang ? [requestedLang] : LANG_PRIORITY;
+  const lang = requestedLang || "ar";
 
-  let selected = null;
-  for (const lang of langsToTry) {
-    selected = await findBestChapterForLanguage(mangaId, chapterCandidates, lang, targetNum);
-    if (selected) break;
-  }
+  const selected = await findBestChapterForLanguage(mangaId, chapterCandidates, lang, targetNum);
 
-  // وضع تلقائي (بدون طلب لغة معيّنة) ولم نجد عربي/إنجليزي/ياباني:
-  // جرّب أي لغة أخرى بنفس رقم الفصل تمامًا قبل اللجوء للملاذ الأخير.
-  if (!selected && !requestedLang) {
-    selected = await findBestChapterForLanguage(mangaId, chapterCandidates, null, targetNum);
-  }
-
-  if (selected) {
-    const usedArabicFallback = !requestedLang && selected.lang !== "ar";
-    const result = { chapterId: selected.id, lang: selected.lang, availableLangs: [selected.lang], usedArabicFallback };
-    console.log({
-      mangaId,
-      chapter: chapterNumberStr,
-      requestedLanguage: requestedLang || null,
-      selectedLanguage: selected.lang,
-      chapterId: selected.id,
-    });
-    return result;
-  }
-
-  // لغة محددة من المستخدم ولم توجد: أبلغه بأي لغة بديلة متوفرة لنفس الرقم (إن وجدت)
-  if (requestedLang) {
-    const anyLang = await findBestChapterForLanguage(mangaId, chapterCandidates, null, targetNum);
-    console.log({
-      mangaId,
-      chapter: chapterNumberStr,
-      requestedLanguage: requestedLang,
-      selectedLanguage: null,
-      chapterId: null,
-    });
-    return { chapterId: null, availableLangs: anyLang ? [anyLang.lang] : [] };
-  }
-
-  // ملاذ أخير: لا توجد أي نسخة مطابقة تمامًا لرقم الفصل بأي لغة — جرّب أقرب رقم
-  const fallback = await findNearestChapterAsLastResort(mangaId, targetNum);
   console.log({
     mangaId,
     chapter: chapterNumberStr,
-    requestedLanguage: requestedLang || null,
-    selectedLanguage: fallback?.lang || null,
-    chapterId: fallback?.id || null,
+    requestedLanguage: lang,
+    selectedLanguage: selected?.lang || null,
+    chapterId: selected?.id || null,
   });
-  if (fallback) {
-    return {
-      chapterId: fallback.id,
-      lang: fallback.lang,
-      availableLangs: [fallback.lang],
-      usedArabicFallback: fallback.lang !== "ar",
-      approximateMatch: true,
-    };
+
+  if (selected) {
+    return { chapterId: selected.id, lang: selected.lang, availableLangs: [selected.lang] };
   }
 
   return { chapterId: null, availableLangs: [] };
@@ -497,32 +456,21 @@ module.exports = {
 
       await updateStatus(`🔍 وجدت: ${mangaTitle}\n📄 جاري البحث عن الفصل ${chapterNumber}...`);
 
-      // ─── المرحلة السابعة/الثامنة: جلب وفلترة الفصول ───
-      let volumes;
+      // ─── المرحلة السابعة إلى العاشرة: البحث عن الفصل واختيار اللغة ───
+      let chapterId, lang, availableLangs;
       try {
-        volumes = await fetchAggregate(mangaId, null);
+        ({ chapterId, lang, availableLangs } = await resolveChapter(
+          mangaId,
+          chapterNumber,
+          requestedLang
+        ));
       } catch (err) {
         throw { userMsg: "❌ تعذر الاتصال بخادم المانجا.\nحاول لاحقاً." };
       }
 
-      const entry = findChapterEntry(volumes, chapterNumber);
-      if (!entry) {
-        throw { userMsg: `❌ الفصل ${chapterNumber} غير متوفر.` };
-      }
-
-      // ─── المرحلة التاسعة/العاشرة: اختيار اللغة و Chapter ID ───
-      const { chapterId, lang, availableLangs } = await resolveLanguageVariant(
-        entry.chapter,
-        mangaId,
-        requestedLang
-      );
-
       if (!chapterId) {
-        if (requestedLang && availableLangs.length) {
-          const labels = availableLangs.map((l) => LANG_LABELS[l] || l).join("، ");
-          throw { userMsg: `⚠️ الفصل متوفر بـ${labels} فقط.` };
-        }
-        throw { userMsg: `❌ الفصل ${chapterNumber} غير متوفر.` };
+        const langLabel = LANG_LABELS[requestedLang || "ar"] || requestedLang;
+        throw { userMsg: `❌ الفصل ${chapterNumber} غير متوفر بـ${langLabel}.` };
       }
 
       await updateStatus(`📥 جاري تجهيز صفحات الفصل ${chapterNumber}...\n📖 ${mangaTitle}`);
