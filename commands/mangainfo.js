@@ -248,20 +248,27 @@ module.exports = {
 
     let statusMsgId = null;
     try {
-      const sent = await global.safeSend(
-        api,
-        `⏳ جاري البحث عن المانجا...\n📖 ${rawName}`,
-        threadID,
-        null,
-        messageID
-      );
-      statusMsgId = sent?.messageID;
+      // نستخدم الـ callback لالتقاط messageID الرسالة المُرسلة، لأن
+      // القيمة التي تُرجعها global.safeSend نفسها لا تحمل هذه المعلومة
+      // (تُحلّ الـ Promise بمجرد استدعاء sendMessage، لا بعد اكتمال الإرسال)
+      statusMsgId = await new Promise((resolve) => {
+        global.safeSend(
+          api,
+          `⏳ جاري البحث عن المانجا...\n📖 ${rawName}`,
+          threadID,
+          (err, info) => resolve(err ? null : info?.messageID || null),
+          messageID
+        );
+      });
     } catch (_) {}
 
     const updateStatus = async (text) => {
       try {
         if (statusMsgId) await api.editMessage(text, statusMsgId);
-      } catch (_) {}
+        else global.safeSend(api, text, threadID, null, messageID);
+      } catch (_) {
+        global.safeSend(api, text, threadID, null, messageID);
+      }
     };
 
     try {
