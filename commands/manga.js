@@ -18,7 +18,7 @@ const path    = require("path");
 const cache   = require("../utils/cache.js");
 
 const API_BASE       = "https://api.mangadex.org";
-const MAX_PER_GROUP  = 10;               // حد الصور لكل دفعة إرسال
+const MAX_PER_GROUP  = 15;               // حد الصور لكل دفعة إرسال (حد مسنجر 16)
 const SEARCH_TTL     = 30 * 60 * 1000;   // 30 دقيقة
 const AGGREGATE_TTL  = 10 * 60 * 1000;   // 10 دقائق
 const MIN_MATCH_SCORE = 0.60;            // أدنى نسبة تشابه مقبولة
@@ -415,23 +415,8 @@ module.exports = {
       return global.safeSend(api, "❗ يرجى تحديد رقم الفصل.", threadID, null, messageID);
     }
 
-    let statusMsgId = null;
-    try {
-      const sent = await global.safeSend(
-        api,
-        `⏳ جاري البحث عن المانجا...\n📖 ${rawName}\n📄 الفصل ${chapterNumber}`,
-        threadID,
-        null,
-        messageID
-      );
-      statusMsgId = sent?.messageID;
-    } catch (_) {}
-
-    const updateStatus = async (text) => {
-      try {
-        if (statusMsgId) await api.editMessage(text, statusMsgId);
-      } catch (_) {}
-    };
+    // بلا رسائل حالة/تقدّم — البوت يرسل المخرج النهائي (الصور) فقط
+    const updateStatus = async () => {};
 
     try {
       // ─── المرحلة الرابعة/الخامسة/السادسة ───
@@ -509,10 +494,6 @@ module.exports = {
         throw { userMsg: "❌ فشل تحميل صفحات الفصل. حاول مرة أخرى." };
       }
 
-      try {
-        if (statusMsgId) await api.unsendMessage(statusMsgId, threadID);
-      } catch (_) {}
-
       // ─── المرحلة الرابعة عشر: إرسال الصور على دفعات ───
       let allSent = true;
       const totalGroups = Math.ceil(validFiles.length / MAX_PER_GROUP);
@@ -542,13 +523,12 @@ module.exports = {
 
       await Promise.allSettled(validFiles.map((f) => fs.remove(f)));
 
-      // ─── المرحلة الخامسة عشر: رسالة النهاية ───
-      if (allSent && validFiles.length === pageUrls.length) {
-        global.safeSend(api, "✅ تم إرسال الفصل بالكامل.\nاستمتع بالقراءة. 📚", threadID, null, null);
-      } else {
+      // بلا رسالة نهاية عند النجاح الكامل — الصور نفسها هي المخرج النهائي.
+      // نبلّغ فقط عند نقص فعلي في الإرسال (معلومة ضرورية، ليست رسالة حالة).
+      if (!allSent || validFiles.length !== pageUrls.length) {
         global.safeSend(
           api,
-          "⚠️ تم إرسال جزء من الفصل.\nيمكنك إعادة المحاولة.",
+          "⚠️ تم إرسال جزء من الفصل فقط.\nيمكنك إعادة المحاولة.",
           threadID,
           null,
           null
@@ -556,12 +536,7 @@ module.exports = {
       }
     } catch (err) {
       const userMsg = err?.userMsg || `❌ حدث خطأ غير متوقع: ${err?.message?.substring(0, 80) || ""}`;
-      try {
-        if (statusMsgId) await api.editMessage(userMsg, statusMsgId);
-        else global.safeSend(api, userMsg, threadID, null, messageID);
-      } catch (_) {
-        global.safeSend(api, userMsg, threadID, null, messageID);
-      }
+      global.safeSend(api, userMsg, threadID, null, messageID);
     }
   },
 };

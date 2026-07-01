@@ -28,12 +28,7 @@ function getTempPath() {
   return path.join(os.tmpdir(), `sing_${Date.now()}.mp3`);
 }
 
-function react(api, msgID, threadID, emoji) {
-  try {
-    if (!msgID || !threadID) return;
-    api.setMessageReaction(emoji, msgID, threadID, () => {}, true);
-  } catch (_) {}
-}
+function react() { /* التفاعل مُعطَّل عمداً — البوت يرسل المخرجات النهائية فقط */ }
 
 // بدون رسالة "جارٍ التحميل" — يحذف القائمة بعد الإرسال
 async function downloadAndSend(api, threadID, messageID, originMsgID, track, listMsgId = null) {

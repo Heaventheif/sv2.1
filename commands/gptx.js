@@ -14,12 +14,7 @@ const SYSTEM_PROMPT = `أنت مساعد ذكي اسمك "Sunken". أجب بإي
 // كلمات التشغيل — الرسائل التي تبدأ بها تُحوَّل لـ gptx
 const TRIGGERS = ["gptx ", "gptx", "ai ", "ذكاء "];
 
-function setReaction(api, emoji, messageID, threadID) {
-  try {
-    if (!emoji || !messageID || !threadID) return;
-    api.setMessageReaction(emoji, messageID, threadID, () => {}, true);
-  } catch (_) {}
-}
+function setReaction() { /* التفاعل مُعطَّل عمداً — البوت يرسل المخرجات النهائية فقط */ }
 
 async function loadSession(threadID) {
   const sessionFile = path.join(sessionsDir, `thread_${threadID}.json`);

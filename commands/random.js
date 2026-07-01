@@ -13,12 +13,7 @@ const VIDEO_BLOGS = [
   "awesome-picz", "thefrogman",
 ];
 
-function react(api, msgID, threadID, emoji) {
-  try {
-    if (!msgID || !threadID) return;
-    api.setMessageReaction(emoji, msgID, threadID, () => {}, true);
-  } catch (_) {}
-}
+function react() { /* التفاعل مُعطَّل عمداً — البوت يرسل المخرجات النهائية فقط */ }
 
 module.exports = {
   config: {

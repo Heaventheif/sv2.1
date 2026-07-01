@@ -3,7 +3,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 
 // إعدادات الإرسال — يمكن تعديلها حسب الحاجة
-const BATCH_SIZE = 5;        // عدد الصور كمرفقات في الرسالة الواحدة
+const BATCH_SIZE = 15;       // عدد الصور كمرفقات في الرسالة الواحدة (حد مسنجر 16)
 const BATCH_DELAY_MS = 1500; // تأخير بين كل دفعة والتالية (لتفادي ضغط فيسبوك)
 const MAX_IMAGES = 80;       // سقف أمان لعدد الصور المُرسَلة لأي فصل واحد
 
@@ -40,8 +40,6 @@ module.exports = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3',
     };
-
-    await api.sendMessage(`🔍 جاري البحث عن الفصل ${chapterNumber} من "${rawMangaName}" ...`, threadID, messageID);
 
     try {
       // ---------- 1) كشط روابط الصور ----------
@@ -82,7 +80,6 @@ module.exports = {
           if (slugMatch) {
             const correctSlug = slugMatch[1];
             const correctedUrl = `${baseUrl}/manga/${encodeURIComponent(correctSlug)}/${encodeURIComponent(chapterNumber)}/`;
-            await api.sendMessage(`🔄 تم العثور على المانجا باسم "${correctSlug}"، جاري المحاولة ...`, threadID, messageID);
             images = await fetchImages(correctedUrl);
             chapterUrl = correctedUrl;
           }
@@ -100,12 +97,6 @@ module.exports = {
       if (images.length > MAX_IMAGES) {
         images = images.slice(0, MAX_IMAGES);
       }
-
-      await api.sendMessage(
-        `📖 مانجا: ${rawMangaName}\n📄 الفصل: ${chapterNumber}\n🖼️ عدد الصور: ${images.length}\n⏳ جاري تحميل وإرسال الصور...`,
-        threadID,
-        messageID
-      );
 
       // ---------- 2) تحويل كل رابط صورة إلى Stream قابل للإرفاق ----------
       // fca-unofficial يقبل stream مباشرة في حقل attachment (لا يقبل روابط نصية).
@@ -157,10 +148,15 @@ module.exports = {
         }
       }
 
-      // ---------- 4) رسالة ختامية ----------
-      let summary = `✅ تم إرسال ${sentCount} صورة من أصل ${images.length}.`;
-      if (failedCount > 0) summary += `\n⚠️ فشل تحميل/إرسال ${failedCount} صورة (روابط بطيئة أو محظورة مؤقتاً).`;
-      await api.sendMessage(summary, threadID, messageID);
+      // ---------- 4) بلا رسالة ختامية عند النجاح الكامل — الصور هي المخرج النهائي.
+      // نُبلّغ فقط عند نقص فعلي في الإرسال.
+      if (failedCount > 0) {
+        await api.sendMessage(
+          `⚠️ فشل تحميل/إرسال ${failedCount} صورة من أصل ${images.length} (روابط بطيئة أو محظورة مؤقتاً).`,
+          threadID,
+          messageID
+        );
+      }
 
     } catch (error) {
       console.error('[manga2] خطأ:', error.message);

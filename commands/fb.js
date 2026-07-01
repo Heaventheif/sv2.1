@@ -24,9 +24,7 @@ function extractFbUrl(text) {
 // setMessageReaction(emoji, messageID, threadID, callback, forceCustom)
 // موجودة هنا محلياً لأن onChat لا يمر عبر نظام التفاعل المركزي في index.js
 // (ذاك النظام يعمل فقط على الأوامر المستدعاة بالـ Prefix عبر onStart)
-function react(api, emoji, messageID, threadID) {
-  try { api.setMessageReaction(emoji, messageID, threadID, () => {}, true); } catch (_) {}
-}
+function react() { /* التفاعل مُعطَّل عمداً — البوت يرسل المخرجات النهائية فقط */ }
 
 // ─── استدعاء HF ──────────────────────────────────────────────
 async function callHF(fbUrl, quality = "worst") {
